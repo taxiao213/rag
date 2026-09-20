@@ -37,6 +37,13 @@ function refLocator(r: RefItem): string {
   return ''
 }
 
+const MODALITY_LABEL: Record<string, string> = {
+  text: '文本',
+  image: '图片',
+  video_transcript: '视频转录',
+  video_frame: '视频帧',
+}
+
 type ModalState =
   | { kind: 'loading' }
   | { kind: 'error'; message: string }
@@ -44,28 +51,54 @@ type ModalState =
 
 /** 引用溯源弹窗：chunk 全文 / 图片 / 源文件链接 */
 function ChunkModal({ state, onClose }: { state: ModalState; onClose: () => void }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-card" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-head">
-          <span className="modal-title">引用原文</span>
-          <button className="modal-close" onClick={onClose}>×</button>
-        </div>
-        <div className="modal-body">
-          {state.kind === 'loading' && <div className="empty-hint">加载中…</div>}
-          {state.kind === 'error' && <div className="test-result fail">{state.message}</div>}
-          {state.kind === 'loaded' && (
-            <>
-              <div className="modal-meta">
-                {state.chunk.document.filename} · {state.chunk.modality}
-                {state.chunk.page_no ? ` · 第 ${state.chunk.page_no} 页` : ''}
-                {state.chunk.slide_no ? ` · 第 ${state.chunk.slide_no} 张幻灯片` : ''}
+      <div className="modal-card" role="dialog" aria-label="引用原文" onClick={(e) => e.stopPropagation()}>
+        {state.kind === 'loading' && (
+          <div className="modal-body"><div className="empty-hint">加载中…</div></div>
+        )}
+        {state.kind === 'error' && (
+          <div className="modal-body"><div className="test-result fail">{state.message}</div></div>
+        )}
+        {state.kind === 'loaded' && (
+          <>
+            <header className="modal-head">
+              <div className="modal-head-text">
+                <div className="modal-title">{state.chunk.document.filename}</div>
+                <div className="modal-badges">
+                  <span className="badge">{MODALITY_LABEL[state.chunk.modality] ?? state.chunk.modality}</span>
+                  {state.chunk.page_no != null && <span className="badge">第 {state.chunk.page_no} 页</span>}
+                  {state.chunk.slide_no != null && <span className="badge">第 {state.chunk.slide_no} 张幻灯片</span>}
+                  {state.chunk.start_ts != null && (
+                    <span className="badge">
+                      {state.chunk.start_ts.toFixed(0)}s - {(state.chunk.end_ts ?? 0).toFixed(0)}s
+                    </span>
+                  )}
+                </div>
               </div>
+              <button className="modal-close" aria-label="关闭" onClick={onClose}>×</button>
+            </header>
+
+            <div className="modal-body">
               {state.chunk.asset?.url && (
-                <img className="modal-asset" src={state.chunk.asset.url} alt="引用图片" />
+                <figure className="modal-figure">
+                  <img src={state.chunk.asset.url} alt={`${state.chunk.document.filename} 引用图片`} />
+                </figure>
               )}
-              <pre className="modal-content">{state.chunk.content}</pre>
-              {state.chunk.document.file_url && (
+              <div className="modal-section-label">
+                {state.chunk.modality === 'image' ? '图片内容描述' : '引用原文'}
+              </div>
+              <div className="modal-content">{state.chunk.content}</div>
+            </div>
+
+            {state.chunk.document.file_url && (
+              <footer className="modal-foot">
                 <a
                   className="btn small"
                   href={state.chunk.document.file_url}
@@ -74,13 +107,22 @@ function ChunkModal({ state, onClose }: { state: ModalState; onClose: () => void
                 >
                   打开源文件 ↗
                 </a>
-              )}
-            </>
-          )}
-        </div>
+              </footer>
+            )}
+          </>
+        )}
       </div>
     </div>
   )
+}
+
+function formatTime(iso: string): string {
+  const d = new Date(iso)
+  const now = new Date()
+  const sameDay = d.toDateString() === now.toDateString()
+  const hm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+  if (sameDay) return hm
+  return `${d.getMonth() + 1}/${d.getDate()} ${hm}`
 }
 
 export default function ChatPage() {
@@ -198,22 +240,22 @@ export default function ChatPage() {
   }
 
   return (
-    <div className="chat-shell">
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-        <h1 className="page-title" style={{ marginBottom: 0 }}>对话</h1>
-        <button className="btn small" onClick={newChat}>＋ 新对话</button>
-      </div>
-      <p className="page-sub">基于知识库内容回答，每个论断标注引用来源。对话记录自动保存。</p>
-
-      {convs.length > 0 && (
-        <div className="conv-list">
+    <div className="chat-layout">
+      <aside className="chat-sidebar">
+        <button className="btn new-chat-btn" onClick={newChat}>＋ 新对话</button>
+        <div className="sidebar-label">历史对话</div>
+        <div className="sidebar-list">
+          {convs.length === 0 && <div className="sidebar-empty">暂无历史对话</div>}
           {convs.map((c) => (
             <div
               key={c.id}
-              className={`conv-item ${currentConv === c.id ? 'active' : ''}`}
+              className={`sidebar-item ${currentConv === c.id ? 'active' : ''}`}
               onClick={() => loadConversation(c.id)}
             >
-              <span className="conv-title">{c.title}</span>
+              <div className="sidebar-item-text">
+                <span className="sidebar-item-title">{c.title}</span>
+                <span className="sidebar-item-time">{formatTime(c.updated_at)}</span>
+              </div>
               <button
                 className="conv-del"
                 title="删除对话"
@@ -229,65 +271,70 @@ export default function ChatPage() {
             </div>
           ))}
         </div>
-      )}
+      </aside>
 
-      <div className="chat-scroll" ref={scrollRef}>
-        {messages.length === 0 && (
-          <div className="empty-hint">
-            还没有对话。试试问：「知识库里有什么？」
-            <br />
-            （需先在「文档」页上传并等待索引完成）
-          </div>
-        )}
-        {messages.map((msg, i) =>
-          msg.role === 'user' ? (
-            <div key={i} className="msg-q">{msg.content}</div>
-          ) : (
-            <div key={i} className="msg-a">
-              {msg.error ? (
-                <div className="test-result fail">{msg.error}</div>
-              ) : (
-                <>
-                  {msg.refs && msg.refs.length > 0
-                    ? renderWithCitations(msg.content, msg.refs, jumpToRef)
-                    : msg.content}
-                  {msg.streaming && <span className="cursor" />}
-                  {msg.refs && msg.refs.length > 0 && (
-                    <div className="refs-row">
-                      {msg.refs.map((r) => (
-                        <div
-                          key={r.ref_id}
-                          id={`ref-${r.ref_id}`}
-                          className="ref-card clickable"
-                          title="点击查看原文"
-                          onClick={() => openRef(r.chunk_id)}
-                        >
-                          <div className="ref-title">[{r.ref_id}] {r.filename}</div>
-                          <div className="ref-meta">
-                            {refLocator(r)} · {r.modality}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </>
-              )}
+      <div className="chat-main">
+        <h1 className="page-title">对话</h1>
+        <p className="page-sub">基于知识库内容回答，每个论断标注引用来源。对话记录自动保存。</p>
+
+        <div className="chat-scroll" ref={scrollRef}>
+          {messages.length === 0 && (
+            <div className="empty-hint">
+              还没有对话。试试问：「知识库里有什么？」
+              <br />
+              （需先在「文档」页上传并等待索引完成）
             </div>
-          ),
-        )}
-      </div>
+          )}
+          {messages.map((msg, i) =>
+            msg.role === 'user' ? (
+              <div key={i} className="msg-q">{msg.content}</div>
+            ) : (
+              <div key={i} className="msg-a">
+                {msg.error ? (
+                  <div className="test-result fail">{msg.error}</div>
+                ) : (
+                  <>
+                    {msg.refs && msg.refs.length > 0
+                      ? renderWithCitations(msg.content, msg.refs, jumpToRef)
+                      : msg.content}
+                    {msg.streaming && <span className="cursor" />}
+                    {msg.refs && msg.refs.length > 0 && (
+                      <div className="refs-row">
+                        {msg.refs.map((r) => (
+                          <div
+                            key={r.ref_id}
+                            id={`ref-${r.ref_id}`}
+                            className="ref-card clickable"
+                            title="点击查看原文"
+                            onClick={() => openRef(r.chunk_id)}
+                          >
+                            <div className="ref-title">[{r.ref_id}] {r.filename}</div>
+                            <div className="ref-meta">
+                              {refLocator(r)} · {MODALITY_LABEL[r.modality] ?? r.modality}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            ),
+          )}
+        </div>
 
-      <div className="chat-input-row">
-        <input
-          placeholder="输入问题，检索你的知识库…"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && send()}
-          disabled={busy}
-        />
-        <button onClick={send} disabled={busy || !input.trim()}>
-          {busy ? '生成中…' : '发送'}
-        </button>
+        <div className="chat-input-row">
+          <input
+            placeholder="输入问题，检索你的知识库…"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && send()}
+            disabled={busy}
+          />
+          <button onClick={send} disabled={busy || !input.trim()}>
+            {busy ? '生成中…' : '发送'}
+          </button>
+        </div>
       </div>
 
       {modal && <ChunkModal state={modal} onClose={() => setModal(null)} />}

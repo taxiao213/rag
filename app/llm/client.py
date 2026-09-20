@@ -1,5 +1,7 @@
-"""云端 LLM 统一客户端：OpenAI 兼容协议，一处封装可切换供应商。
+"""云端 LLM 统一客户端：OpenAI 兼容协议，生成与索引两组独立配置。
 
+- chat 配置：生成层（对话回答）
+- index 配置：索引层（embedding / vlm / rerank）——可与生成层不同供应商
 配置优先级：settings 表（网页配置） > .env 兜底。配置带缓存，settings 更新时失效。
 """
 
@@ -15,95 +17,123 @@ from app.core.db import get_session_factory
 from app.core.models import Setting
 from app.core.security import decrypt_secret
 
-SETTINGS_KEY = "llm_config"
+SETTINGS_KEY_CHAT = "llm_config_chat"
+SETTINGS_KEY_INDEX = "llm_config_index"
 
 
 @dataclass
-class LLMConfig:
+class ChatConfig:
     base_url: str
     api_key: str
     llm_model: str
-    embedding_model: str
-    rerank_model: str
-    vlm_model: str
-    temperature: float | None = None  # None = 不下发，用服务商默认（部分模型仅允许默认值）
     max_tokens: int = 2048
 
 
-_cache: LLMConfig | None = None
+@dataclass
+class IndexConfig:
+    base_url: str
+    api_key: str
+    embedding_model: str
+    rerank_model: str
+    vlm_model: str
+
+
+_chat_cache: ChatConfig | None = None
+_index_cache: IndexConfig | None = None
 
 
 def invalidate_cache() -> None:
-    global _cache
-    _cache = None
+    global _chat_cache, _index_cache
+    _chat_cache = None
+    _index_cache = None
 
 
-async def load_config() -> LLMConfig:
-    """读 settings 表（解密），缺失字段回落到 .env。"""
-    global _cache
-    if _cache is not None:
-        return _cache
+async def _read_setting(session, key: str) -> dict:
+    row = await session.scalar(select(Setting).where(Setting.key == key))
+    if not row:
+        return {}
+    value = dict(row.value)
+    if value.get("api_key_encrypted"):
+        value["api_key"] = decrypt_secret(value.pop("api_key_encrypted"))
+    return {k: v for k, v in value.items() if v not in (None, "")}
 
+
+async def load_chat_config() -> ChatConfig:
+    """生成层配置：settings 表优先，回落 .env。"""
+    global _chat_cache
+    if _chat_cache is not None:
+        return _chat_cache
     env = get_settings()
     base = {
         "base_url": env.llm_base_url,
         "api_key": env.llm_api_key,
         "llm_model": env.llm_model,
+        "max_tokens": 2048,
+    }
+    factory = get_session_factory()
+    async with factory() as session:
+        base.update(await _read_setting(session, SETTINGS_KEY_CHAT))
+    _chat_cache = ChatConfig(**{k: v for k, v in base.items() if k in ChatConfig.__dataclass_fields__})
+    return _chat_cache
+
+
+async def load_index_config() -> IndexConfig:
+    """索引层配置：独立 settings，缺失回落到生成层配置（兼容旧单配置）。"""
+    global _index_cache
+    if _index_cache is not None:
+        return _index_cache
+    env = get_settings()
+    chat = await load_chat_config()
+    base = {
+        "base_url": chat.base_url,
+        "api_key": chat.api_key,
         "embedding_model": env.embedding_model,
         "rerank_model": env.rerank_model,
         "vlm_model": env.vlm_model,
-        "max_tokens": 2048,
     }
-
     factory = get_session_factory()
     async with factory() as session:
-        row = await session.scalar(select(Setting).where(Setting.key == SETTINGS_KEY))
-        if row:
-            value = dict(row.value)
-            if value.get("api_key_encrypted"):
-                value["api_key"] = decrypt_secret(value.pop("api_key_encrypted"))
-            base.update({k: v for k, v in value.items() if v not in (None, "")})
-
-    _cache = LLMConfig(**{k: v for k, v in base.items() if k in LLMConfig.__dataclass_fields__})
-    return _cache
+        base.update(await _read_setting(session, SETTINGS_KEY_INDEX))
+    _index_cache = IndexConfig(
+        **{k: v for k, v in base.items() if k in IndexConfig.__dataclass_fields__}
+    )
+    return _index_cache
 
 
 class LLMClient:
-    """OpenAI 兼容协议客户端：chat（含流式）、embedding、vlm 描述。"""
+    """OpenAI 兼容协议客户端：chat（含流式）与 embedding。"""
 
-    def __init__(self, config: LLMConfig) -> None:
-        self._config = config
+    def __init__(self, base_url: str, api_key: str, default_model: str = "",
+                 default_max_tokens: int = 2048) -> None:
+        self.default_model = default_model
+        self.default_max_tokens = default_max_tokens
         self._client = httpx.AsyncClient(
-            base_url=config.base_url.rstrip("/"),
-            headers={"Authorization": f"Bearer {config.api_key}"},
+            base_url=base_url.rstrip("/"),
+            headers={"Authorization": f"Bearer {api_key}"},
             timeout=httpx.Timeout(120.0, connect=10.0),
         )
 
     async def chat(self, messages: list[dict], *, model: str | None = None,
-                   temperature: float | None = None, max_tokens: int | None = None) -> dict:
-        payload: dict = {
-            "model": model or self._config.llm_model,
-            "messages": messages,
-            "max_tokens": max_tokens or self._config.max_tokens,
-        }
-        temp = temperature if temperature is not None else self._config.temperature
-        if temp is not None:
-            payload["temperature"] = temp
-        resp = await self._client.post("/chat/completions", json=payload)
+                   max_tokens: int | None = None) -> dict:
+        resp = await self._client.post(
+            "/chat/completions",
+            json={
+                "model": model or self.default_model,
+                "messages": messages,
+                "max_tokens": max_tokens or self.default_max_tokens,
+            },
+        )
         resp.raise_for_status()
         return resp.json()
 
     async def chat_stream(self, messages: list[dict], **kwargs) -> AsyncIterator[str]:
         """SSE 流式：逐 token 产出内容文本。"""
-        payload: dict = {
-            "model": kwargs.pop("model", None) or self._config.llm_model,
+        payload = {
+            "model": kwargs.pop("model", None) or self.default_model,
             "messages": messages,
             "stream": True,
-            "max_tokens": kwargs.get("max_tokens") or self._config.max_tokens,
+            "max_tokens": kwargs.get("max_tokens") or self.default_max_tokens,
         }
-        temp = kwargs.get("temperature") or self._config.temperature
-        if temp is not None:
-            payload["temperature"] = temp
         async with self._client.stream("POST", "/chat/completions", json=payload) as resp:
             resp.raise_for_status()
             async for line in resp.aiter_lines():
@@ -115,10 +145,10 @@ class LLMClient:
                 if content := delta.get("content"):
                     yield content
 
-    async def embed(self, texts: list[str]) -> list[list[float]]:
+    async def embed(self, texts: list[str], model: str) -> list[list[float]]:
         resp = await self._client.post(
             "/embeddings",
-            json={"model": self._config.embedding_model, "input": texts},
+            json={"model": model, "input": texts},
         )
         resp.raise_for_status()
         data = resp.json()["data"]
@@ -128,31 +158,66 @@ class LLMClient:
         await self._client.aclose()
 
 
-_client: LLMClient | None = None
+_chat_client: LLMClient | None = None
+_index_client: LLMClient | None = None
 _lock = asyncio.Lock()
 
 
-async def get_client() -> LLMClient:
-    """进程级单例：config 变化时（invalidate_cache 后）重建。"""
-    global _client
+async def get_chat_client() -> LLMClient:
+    """生成层单例：对话问答用。"""
+    global _chat_client
     async with _lock:
-        if _client is None:
-            _client = LLMClient(await load_config())
-        return _client
+        if _chat_client is None:
+            cfg = await load_chat_config()
+            _chat_client = LLMClient(cfg.base_url, cfg.api_key, cfg.llm_model, cfg.max_tokens)
+        return _chat_client
+
+
+async def get_index_client() -> LLMClient:
+    """索引层单例：embedding/VLM 用。"""
+    global _index_client
+    async with _lock:
+        if _index_client is None:
+            cfg = await load_index_config()
+            _index_client = LLMClient(cfg.base_url, cfg.api_key)
+        return _index_client
+
+
+async def reset_clients() -> None:
+    """配置变更后调用：关闭并清空客户端缓存。"""
+    global _chat_client, _index_client
+    invalidate_cache()
+    async with _lock:
+        for client in (_chat_client, _index_client):
+            if client is not None:
+                try:
+                    await client.close()
+                except Exception:
+                    pass
+        _chat_client = None
+        _index_client = None
 
 
 async def test_connection(base_url: str, api_key: str, model: str) -> tuple[bool, str]:
     """最小请求验证配置有效性，返回 (是否成功, 消息)。"""
     try:
-        client = LLMClient(LLMConfig(
-            base_url=base_url, api_key=api_key, llm_model=model,
-            embedding_model="", rerank_model="", vlm_model="",
-        ))
-        resp = await client.chat(
-            [{"role": "user", "content": "ping"}], max_tokens=4
-        )
+        client = LLMClient(base_url, api_key, model)
+        resp = await client.chat([{"role": "user", "content": "ping"}], max_tokens=4)
         await client.close()
-        return True, f"连接成功，模型 {resp['model']} 响应正常"
+        return True, f"连接成功，模型 {resp.get('model', model)} 响应正常"
+    except httpx.HTTPStatusError as e:
+        return False, f"HTTP {e.response.status_code}: {e.response.text[:200]}"
+    except Exception as e:
+        return False, f"连接失败: {e}"
+
+
+async def test_embedding(base_url: str, api_key: str, model: str) -> tuple[bool, str]:
+    """验证 embedding 接口可用性。"""
+    try:
+        client = LLMClient(base_url, api_key)
+        vectors = await client.embed(["测试"], model)
+        await client.close()
+        return True, f"连接成功，返回 {len(vectors[0])} 维向量"
     except httpx.HTTPStatusError as e:
         return False, f"HTTP {e.response.status_code}: {e.response.text[:200]}"
     except Exception as e:

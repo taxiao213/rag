@@ -4,7 +4,7 @@ import asyncio
 
 import structlog
 
-from app.llm.client import get_client
+from app.llm.client import get_index_client, load_index_config
 
 log = structlog.get_logger()
 
@@ -13,14 +13,16 @@ BATCH_SIZE = 25  # 通义 text-embedding-v3 单批上限 25
 
 async def embed_texts(texts: list[str], *, concurrency: int = 3) -> list[list[float]]:
     """分批并发 embedding，保持与输入顺序一致。"""
-    client = await get_client()
+    client = await get_index_client()
+    config = await load_index_config()
+    model = config.embedding_model
     sem = asyncio.Semaphore(concurrency)
 
     async def embed_batch(idx: int, batch: list[str]) -> tuple[int, list[list[float]]]:
         async with sem:
             for attempt in range(3):
                 try:
-                    return idx, await client.embed(batch)
+                    return idx, await client.embed(batch, model)
                 except Exception as e:
                     wait = 2**attempt
                     log.warning("embedding 重试", batch_idx=idx, attempt=attempt, err=str(e))

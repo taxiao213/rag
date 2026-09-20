@@ -28,7 +28,11 @@ async def lifespan(app: FastAPI):
     from app.core.storage import ensure_bucket
 
     ensure_bucket()
-    yield
+    # MCP session manager 任务组必须在宿主 lifespan 中启动（挂载不触发子应用 lifespan）
+    from app.api.mcp_server import mcp as kb_mcp
+
+    async with kb_mcp.session_manager.run():
+        yield
     from app.workers.queue import close_pool
 
     await close_pool()

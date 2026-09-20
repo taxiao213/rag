@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.generation.context_builder import build_context
 from app.generation.prompts import build_messages
-from app.llm.client import get_client
+from app.llm.client import get_chat_client
 from app.retrieval.hybrid_search import hybrid_search
 
 
@@ -20,7 +20,7 @@ async def answer_stream(
     results = await hybrid_search(session, query)
     context, refs = build_context(results)
 
-    client = await get_client()
+    client = await get_chat_client()
     messages = build_messages(query, context)
 
     async def sse(data: dict) -> str:

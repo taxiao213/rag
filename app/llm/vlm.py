@@ -2,7 +2,7 @@
 
 import base64
 
-from app.llm.client import get_client
+from app.llm.client import get_index_client, load_index_config
 
 DESCRIBE_PROMPT = (
     "请客观描述这张图片的内容，要求：\n"
@@ -17,8 +17,8 @@ MIME_MAP = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", "webp
 
 
 async def describe_image(image_bytes: bytes, ext: str) -> str:
-    client = await get_client()
-    config = client._config
+    client = await get_index_client()
+    config = await load_index_config()
     mime = MIME_MAP.get(ext.lower(), "image/png")
     b64 = base64.b64encode(image_bytes).decode()
     resp = await client.chat(

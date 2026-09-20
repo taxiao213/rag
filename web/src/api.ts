@@ -25,15 +25,26 @@ export type RefItem = {
   asset_id: string | null
 }
 
-export type LLMSettings = {
+export type ChatSettings = {
   base_url: string
   api_key_masked: string
   api_key_configured: boolean
   llm_model: string
+  max_tokens: number
+}
+
+export type IndexSettings = {
+  base_url: string
+  api_key_masked: string
+  api_key_configured: boolean
   embedding_model: string
   rerank_model: string
   vlm_model: string
-  max_tokens: number
+}
+
+export type LLMSettings = {
+  chat: ChatSettings
+  index: IndexSettings
 }
 
 const KEY_STORAGE = 'kb-rag-api-key'

@@ -12,16 +12,17 @@ from app.retrieval.hybrid_search import hybrid_search
 
 
 async def answer_stream(
-    session: AsyncSession, query: str
+    session: AsyncSession, query: str, history: list[dict] | None = None
 ) -> AsyncIterator[str]:
     """SSE 事件流：先逐 token 推内容（data: {"type":"token","content":...}），
     最后推引用元数据（data: {"type":"refs","refs":[...]}），以 [DONE] 结束。
+    history: 该对话的最近若干轮消息（[{role, content}]），用于追问上下文。
     """
     results = await hybrid_search(session, query)
     context, refs = build_context(results)
 
     client = await get_chat_client()
-    messages = build_messages(query, context)
+    messages = build_messages(query, context, history)
 
     async def sse(data: dict) -> str:
         return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"

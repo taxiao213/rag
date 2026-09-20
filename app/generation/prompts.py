@@ -11,8 +11,12 @@ SYSTEM_PROMPT = """你是一个基于企业知识库的问答助手。规则：
 """
 
 
-def build_messages(query: str, context: str) -> list[dict]:
-    return [
-        {"role": "system", "content": SYSTEM_PROMPT.format(context=context)},
-        {"role": "user", "content": query},
+def build_messages(query: str, context: str, history: list[dict] | None = None) -> list[dict]:
+    """组装消息：系统提示（含知识库上下文）+ 历史对话（最近若干轮）+ 当前问题。"""
+    messages: list[dict] = [
+        {"role": "system", "content": SYSTEM_PROMPT.format(context=context)}
     ]
+    for msg in history or []:
+        messages.append({"role": msg["role"], "content": msg["content"]})
+    messages.append({"role": "user", "content": query})
+    return messages

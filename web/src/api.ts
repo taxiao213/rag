@@ -25,6 +25,30 @@ export type RefItem = {
   asset_id: string | null
 }
 
+export type ChunkDetail = {
+  chunk_id: string
+  content: string
+  modality: string
+  page_no: number | null
+  slide_no: number | null
+  start_ts: number | null
+  end_ts: number | null
+  asset: {
+    asset_id: string
+    asset_type: string
+    url: string
+    width: number | null
+    height: number | null
+    timestamp: number | null
+  } | null
+  document: {
+    document_id: string | null
+    filename: string
+    file_type: string
+    file_url: string | null
+  }
+}
+
 export type ChatSettings = {
   base_url: string
   api_key_masked: string
@@ -73,6 +97,9 @@ async function request(path: string, init: RequestInit = {}): Promise<Response> 
 }
 
 export const api = {
+  getChunk: async (id: string): Promise<ChunkDetail> =>
+    (await request(`/api/chunks/${id}`)).json(),
+
   listConversations: async (): Promise<{ id: string; title: string; updated_at: string }[]> =>
     (await request('/api/conversations')).json(),
 

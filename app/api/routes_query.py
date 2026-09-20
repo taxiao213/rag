@@ -43,12 +43,25 @@ async def query(
     conv.updated_at = datetime.utcnow()
     conv_id = conv.id
 
+    # 追问上下文：取该对话最近 6 条消息（3 轮）
+    from sqlalchemy import select
+
+    recent = (
+        await session.execute(
+            select(Message)
+            .where(Message.conversation_id == conv_id)
+            .order_by(Message.created_at.desc(), Message.id.desc())
+            .limit(6)
+        )
+    ).scalars().all()
+    history = [{"role": m.role, "content": m.content} for m in reversed(recent)]
+
     collected: list[str] = []
     refs: list = []
 
     async def events():
         yield {"data": json.dumps({"type": "conversation", "id": conv_id}, ensure_ascii=False)}
-        async for raw in answer_stream(session, req.query):
+        async for raw in answer_stream(session, req.query, history):
             data = raw.split("data: ", 1)[1].rstrip("\n")
             yield {"data": data}
             # 收集内容用于落库

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { api, RefItem } from '../api'
+import { api, ChunkDetail, RefItem } from '../api'
 
 type Message = {
   role: 'user' | 'assistant'
@@ -37,12 +37,59 @@ function refLocator(r: RefItem): string {
   return ''
 }
 
+type ModalState =
+  | { kind: 'loading' }
+  | { kind: 'error'; message: string }
+  | { kind: 'loaded'; chunk: ChunkDetail }
+
+/** 引用溯源弹窗：chunk 全文 / 图片 / 源文件链接 */
+function ChunkModal({ state, onClose }: { state: ModalState; onClose: () => void }) {
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-head">
+          <span className="modal-title">引用原文</span>
+          <button className="modal-close" onClick={onClose}>×</button>
+        </div>
+        <div className="modal-body">
+          {state.kind === 'loading' && <div className="empty-hint">加载中…</div>}
+          {state.kind === 'error' && <div className="test-result fail">{state.message}</div>}
+          {state.kind === 'loaded' && (
+            <>
+              <div className="modal-meta">
+                {state.chunk.document.filename} · {state.chunk.modality}
+                {state.chunk.page_no ? ` · 第 ${state.chunk.page_no} 页` : ''}
+                {state.chunk.slide_no ? ` · 第 ${state.chunk.slide_no} 张幻灯片` : ''}
+              </div>
+              {state.chunk.asset?.url && (
+                <img className="modal-asset" src={state.chunk.asset.url} alt="引用图片" />
+              )}
+              <pre className="modal-content">{state.chunk.content}</pre>
+              {state.chunk.document.file_url && (
+                <a
+                  className="btn small"
+                  href={state.chunk.document.file_url}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  打开源文件 ↗
+                </a>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
   const [convs, setConvs] = useState<ConvSummary[]>([])
   const [currentConv, setCurrentConv] = useState<string | null>(null)
+  const [modal, setModal] = useState<ModalState | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
 
   const refreshConvs = useCallback(() => {
@@ -82,6 +129,16 @@ export default function ChatPage() {
     document.getElementById(`ref-${refId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
     document.getElementById(`ref-${refId}`)?.classList.add('highlight')
     setTimeout(() => document.getElementById(`ref-${refId}`)?.classList.remove('highlight'), 1600)
+  }
+
+  const openRef = async (chunkId: string) => {
+    setModal({ kind: 'loading' })
+    try {
+      const chunk = await api.getChunk(chunkId)
+      setModal({ kind: 'loaded', chunk })
+    } catch (e) {
+      setModal({ kind: 'error', message: e instanceof Error ? e.message : String(e) })
+    }
   }
 
   const send = async () => {
@@ -198,7 +255,13 @@ export default function ChatPage() {
                   {msg.refs && msg.refs.length > 0 && (
                     <div className="refs-row">
                       {msg.refs.map((r) => (
-                        <div key={r.ref_id} id={`ref-${r.ref_id}`} className="ref-card">
+                        <div
+                          key={r.ref_id}
+                          id={`ref-${r.ref_id}`}
+                          className="ref-card clickable"
+                          title="点击查看原文"
+                          onClick={() => openRef(r.chunk_id)}
+                        >
                           <div className="ref-title">[{r.ref_id}] {r.filename}</div>
                           <div className="ref-meta">
                             {refLocator(r)} · {r.modality}
@@ -226,6 +289,8 @@ export default function ChatPage() {
           {busy ? '生成中…' : '发送'}
         </button>
       </div>
+
+      {modal && <ChunkModal state={modal} onClose={() => setModal(null)} />}
     </div>
   )
 }

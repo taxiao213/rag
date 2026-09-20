@@ -191,3 +191,48 @@ body {
 .conv-del:hover { color: var(--color-err); }
 
 .empty-hint { text-align: center; color: var(--color-ink-3); padding: var(--space-12) 0; font-size: var(--text-sm); }
+
+/* ---------- 引用溯源弹窗 ---------- */
+.ref-card.clickable { cursor: pointer; }
+.ref-card.clickable:hover { border-color: var(--color-accent); }
+
+.modal-overlay {
+  position: fixed; inset: 0; z-index: 100;
+  background: rgba(30, 27, 22, 0.45);
+  display: flex; align-items: center; justify-content: center;
+  padding: var(--space-6);
+}
+.modal-card {
+  background: var(--color-surface); border-radius: var(--radius-lg);
+  border: 1px solid var(--color-border);
+  box-shadow: 0 24px 64px rgba(30, 27, 22, 0.25);
+  max-width: 720px; width: 100%; max-height: 84vh;
+  display: flex; flex-direction: column;
+}
+.modal-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--color-border);
+}
+.modal-title { font-family: var(--font-display); font-weight: 600; font-size: var(--text-lg); }
+.modal-close {
+  border: none; background: none; font-size: 22px; line-height: 1;
+  color: var(--color-ink-3); cursor: pointer; padding: 0 4px;
+}
+.modal-close:hover { color: var(--color-ink); }
+.modal-body {
+  padding: var(--space-5); overflow-y: auto;
+  display: flex; flex-direction: column; gap: var(--space-4); align-items: flex-start;
+}
+.modal-meta { font-size: var(--text-sm); color: var(--color-ink-3); }
+.modal-asset {
+  max-width: 100%; max-height: 320px; border-radius: var(--radius-md);
+  border: 1px solid var(--color-border); object-fit: contain;
+}
+.modal-content {
+  margin: 0; white-space: pre-wrap; word-break: break-word;
+  font-family: var(--font-body); font-size: var(--text-sm); line-height: 1.7;
+  background: var(--color-bg); border-radius: var(--radius-md);
+  padding: var(--space-4); width: 100%; box-sizing: border-box;
+  max-height: 40vh; overflow-y: auto;
+}

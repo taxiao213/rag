@@ -31,12 +31,11 @@ export default function DocsPage() {
     }
   }, [])
 
-  // 有进行中任务时 3s 轮询
+  // 页面打开期间持续轮询：有进行中任务 3s 一次，空闲 15s 一次
   useEffect(() => {
     refresh()
     const hasActive = docs.some((d) => ['indexing', 'pending', 'uploaded'].includes(d.status))
-    if (!hasActive) return
-    const t = setInterval(refresh, 3000)
+    const t = setInterval(refresh, hasActive ? 3000 : 15000)
     return () => clearInterval(t)
   }, [docs, refresh])
 

@@ -69,7 +69,27 @@ async def scan_pending_tasks(ctx: dict) -> None:
         await session.commit()
 
 
+async def scan_directories(ctx: dict) -> None:
+    """定时 job：扫描配置的目录同步路径，新文件/变更/消失自动入库。"""
+    from app.sync.dir_sync import scan_watch_paths
+
+    factory = get_session_factory()
+    async with factory() as session:
+        try:
+            stats = await scan_watch_paths(session)
+            await session.commit()
+            if stats["added"] or stats["updated"] or stats["deleted"] or stats["errors"]:
+                log.info("目录同步扫描完成", **{k: v for k, v in stats.items() if k != "errors"},
+                         errors=stats["errors"])
+        except Exception as e:
+            await session.rollback()
+            log.error("目录同步扫描失败", err=str(e))
+
+
 class WorkerSettings:
     functions = [process_index_task]
-    cron_jobs = [cron(scan_pending_tasks, minute={0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55})]
+    cron_jobs = [
+        cron(scan_pending_tasks, minute={0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55}),
+        cron(scan_directories, minute={2, 7, 12, 17, 22, 27, 32, 37, 42, 47, 52, 57}),
+    ]
     redis_settings = _redis_settings()

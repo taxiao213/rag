@@ -10,6 +10,7 @@ from app.api import (
     routes_chunks,
     routes_conversations,
     routes_documents,
+    routes_paths,
     routes_query,
     routes_settings,
     routes_tasks,
@@ -54,6 +55,7 @@ app.include_router(routes_tasks.router)
 app.include_router(routes_settings.router)
 app.include_router(routes_conversations.router)
 app.include_router(routes_chunks.router)
+app.include_router(routes_paths.router)
 
 
 @app.get("/health")

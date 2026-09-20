@@ -85,6 +85,9 @@ class Document(Base):
     modality: Mapped[Modality] = mapped_column(SAEnum(Modality))
     storage_key: Mapped[str] = mapped_column(String(512), unique=True)
     file_hash: Mapped[str] = mapped_column(String(64), index=True)  # sha256，去重/变更检测
+    source_path: Mapped[str | None] = mapped_column(
+        String(1024), nullable=True, index=True
+    )  # 目录同步来源路径（上传文档为 None）
     size_bytes: Mapped[int] = mapped_column(Integer, default=0)
     version: Mapped[int] = mapped_column(Integer, default=1)
     importance: Mapped[str] = mapped_column(String(16), default="normal")  # high/normal

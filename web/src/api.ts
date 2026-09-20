@@ -49,6 +49,21 @@ export type ChunkDetail = {
   }
 }
 
+export type WatchPath = {
+  path: string
+  importance: 'normal' | 'high'
+  enabled: boolean
+  exists?: boolean
+}
+
+export type ScanStats = {
+  added: number
+  updated: number
+  deleted: number
+  skipped: number
+  errors: string[]
+}
+
 export type ChatSettings = {
   base_url: string
   api_key_masked: string
@@ -127,6 +142,15 @@ export const api = {
 
   reindex: async (id: string): Promise<unknown> =>
     (await request(`/api/documents/${id}/reindex`, { method: 'POST' })).json(),
+
+  getPaths: async (): Promise<{ paths: WatchPath[] }> =>
+    (await request('/api/paths')).json(),
+
+  savePaths: async (paths: WatchPath[]): Promise<unknown> =>
+    (await request('/api/paths', { method: 'PUT', body: JSON.stringify({ paths }) })).json(),
+
+  scanPaths: async (): Promise<ScanStats> =>
+    (await request('/api/paths/scan', { method: 'POST' })).json(),
 
   getLLMSettings: async (): Promise<LLMSettings> =>
     (await request('/api/settings/llm')).json(),

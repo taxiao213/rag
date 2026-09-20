@@ -281,3 +281,31 @@ body {
   border-top: 1px solid var(--color-border);
   display: flex; justify-content: flex-end;
 }
+
+/* ---------- 目录同步 ---------- */
+.sync-card { margin-bottom: var(--space-6); display: flex; flex-direction: column; gap: var(--space-4); }
+.sync-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-4); }
+.sync-title { font-weight: 600; font-size: var(--text-lg); letter-spacing: -0.01em; }
+.sync-sub { color: var(--color-ink-2); font-size: var(--text-sm); margin-top: 4px; line-height: 1.6; }
+.path-list { display: flex; flex-direction: column; gap: 2px; }
+.path-row {
+  display: flex; align-items: center; gap: var(--space-3);
+  padding: 8px 10px; border-radius: var(--radius-md);
+}
+.path-row:hover { background: var(--color-bg); }
+.path-row.disabled .path-name { color: var(--color-ink-3); text-decoration: line-through; }
+.path-row .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.path-row .dot.ok { background: var(--color-ok); }
+.path-row .dot.err { background: var(--color-err); }
+.path-name {
+  flex: 1; min-width: 0; font-size: 13px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.badge.warn { background: rgba(217, 119, 32, 0.12); color: var(--color-warn, #b25e09); }
+.path-add { display: flex; align-items: center; gap: var(--space-2); }
+.path-add input {
+  flex: 1; padding: 10px 14px; border-radius: var(--radius-md);
+  border: 1px solid var(--color-border); background: var(--color-surface);
+  font-family: var(--font-mono); font-size: 13px; color: var(--color-ink);
+}
+.path-add input:focus { outline: none; border-color: var(--color-accent); }

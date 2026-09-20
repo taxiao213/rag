@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { api, DocItem } from '../api'
+import { api, DocItem, ScanStats, WatchPath } from '../api'
 
 const STATUS_LABEL: Record<string, string> = {
   indexed: '已索引',
@@ -21,6 +21,62 @@ export default function DocsPage() {
   const [error, setError] = useState('')
   const [uploading, setUploading] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
+
+  // 目录同步
+  const [paths, setPaths] = useState<WatchPath[]>([])
+  const [newPath, setNewPath] = useState('')
+  const [newImportance, setNewImportance] = useState<'normal' | 'high'>('normal')
+  const [scanning, setScanning] = useState(false)
+  const [scanResult, setScanResult] = useState<ScanStats | null>(null)
+  const [pathError, setPathError] = useState('')
+
+  const loadPaths = useCallback(() => {
+    api.getPaths().then((r) => setPaths(r.paths)).catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    loadPaths()
+  }, [loadPaths])
+
+  const persistPaths = async (next: WatchPath[]) => {
+    setPaths(next)
+    setPathError('')
+    try {
+      await api.savePaths(next)
+      loadPaths()
+    } catch (e) {
+      setPathError(e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  const addPath = async () => {
+    const p = newPath.trim()
+    if (!p.startsWith('/')) {
+      setPathError('请输入绝对路径，如 /data/kb')
+      return
+    }
+    if (paths.some((x) => x.path === p)) {
+      setPathError('该路径已存在')
+      return
+    }
+    await persistPaths([...paths, { path: p, importance: newImportance, enabled: true }])
+    setNewPath('')
+  }
+
+  const runScan = async () => {
+    setScanning(true)
+    setScanResult(null)
+    setPathError('')
+    try {
+      const stats = await api.scanPaths()
+      setScanResult(stats)
+      refresh()
+    } catch (e) {
+      setPathError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setScanning(false)
+    }
+  }
 
   const refresh = useCallback(async () => {
     try {
@@ -96,6 +152,83 @@ export default function DocsPage() {
           style={{ display: 'none' }}
           onChange={(e) => uploadFiles(e.target.files)}
         />
+      </div>
+
+      <div className="card sync-card">
+        <div className="sync-head">
+          <div>
+            <div className="sync-title">目录同步</div>
+            <div className="sync-sub">
+              监视服务器上的目录：新文件自动入库、修改自动重建、移除自动清理。每 5 分钟定时扫描，也可手动触发。
+            </div>
+          </div>
+          <button className="btn small" onClick={runScan} disabled={scanning || paths.length === 0}>
+            {scanning ? '同步中…' : '立即同步'}
+          </button>
+        </div>
+
+        {pathError && <div className="test-result fail">{pathError}</div>}
+        {scanResult && (
+          <div className={`test-result ${scanResult.errors.length ? 'fail' : 'ok'}`}>
+            新增 {scanResult.added} · 更新 {scanResult.updated} · 删除 {scanResult.deleted} · 跳过 {scanResult.skipped}
+            {scanResult.errors.length > 0 && ` · 错误：${scanResult.errors.join('；')}`}
+          </div>
+        )}
+
+        {paths.length > 0 && (
+          <div className="path-list">
+            {paths.map((p) => (
+              <div key={p.path} className={`path-row ${p.enabled ? '' : 'disabled'}`}>
+                <span className={`dot ${p.exists ? 'ok' : 'err'}`} title={p.exists ? '路径可访问' : '路径不可访问'} />
+                <span className="path-name mono">{p.path}</span>
+                <span className={`badge ${p.importance === 'high' ? 'warn' : ''}`}>
+                  {p.importance === 'high' ? '重要' : '普通'}
+                </span>
+                <button
+                  className="preset-chip"
+                  title={p.enabled ? '点击停用' : '点击启用'}
+                  onClick={() =>
+                    persistPaths(paths.map((x) => (x.path === p.path ? { ...x, enabled: !x.enabled } : x)))
+                  }
+                >
+                  {p.enabled ? '已启用' : '已停用'}
+                </button>
+                <button
+                  className="conv-del"
+                  style={{ opacity: 1 }}
+                  title="移除路径"
+                  onClick={() => persistPaths(paths.filter((x) => x.path !== p.path))}
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="path-add">
+          <input
+            placeholder="输入绝对路径，如 /Users/you/kb 或 /data/docs"
+            value={newPath}
+            onChange={(e) => setNewPath(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && addPath()}
+          />
+          <button
+            className={`preset-chip ${newImportance === 'normal' ? 'active' : ''}`}
+            onClick={() => setNewImportance('normal')}
+          >
+            普通
+          </button>
+          <button
+            className={`preset-chip ${newImportance === 'high' ? 'active' : ''}`}
+            onClick={() => setNewImportance('high')}
+          >
+            重要
+          </button>
+          <button className="btn small" onClick={addPath} disabled={!newPath.trim()}>
+            添加路径
+          </button>
+        </div>
       </div>
 
       {docs.length === 0 ? (

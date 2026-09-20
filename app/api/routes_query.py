@@ -1,0 +1,78 @@
+"""查询 API：SSE 流式问答 + 对话持久化。
+
+流程：无 conversation_id 则创建新对话（首条 query 前 30 字为标题）→
+SSE 推流（conversation 事件 → token 事件 → refs 事件 → DONE）→ 流结束后落库。
+"""
+
+import json
+from datetime import datetime
+
+from fastapi import APIRouter, Depends
+from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
+from sse_starlette.sse import EventSourceResponse
+
+from app.core.db import get_session
+from app.core.models import Conversation, Message
+from app.core.security import require_query_key
+from app.generation.generator import answer_stream
+
+router = APIRouter(prefix="/api/query", tags=["query"])
+
+
+class QueryRequest(BaseModel):
+    query: str
+    conversation_id: str | None = None
+
+
+@router.post("")
+async def query(
+    req: QueryRequest,
+    session: AsyncSession = Depends(get_session),
+    _: str = Depends(require_query_key),
+) -> EventSourceResponse:
+    # 对话准备：复用或新建
+    if req.conversation_id:
+        conv = await session.get(Conversation, req.conversation_id)
+    else:
+        conv = None
+    if conv is None:
+        conv = Conversation(title=req.query.strip()[:30] or "新对话")
+        session.add(conv)
+        await session.flush()
+    conv.updated_at = datetime.utcnow()
+    conv_id = conv.id
+
+    collected: list[str] = []
+    refs: list = []
+
+    async def events():
+        yield {"data": json.dumps({"type": "conversation", "id": conv_id}, ensure_ascii=False)}
+        async for raw in answer_stream(session, req.query):
+            data = raw.split("data: ", 1)[1].rstrip("\n")
+            yield {"data": data}
+            # 收集内容用于落库
+            if data == "[DONE]":
+                continue
+            try:
+                parsed = json.loads(data)
+                if parsed.get("type") == "token":
+                    collected.append(parsed["content"])
+                elif parsed.get("type") == "refs":
+                    refs.extend(parsed["refs"])
+            except json.JSONDecodeError:
+                pass
+
+        # 流结束：落库一问一答
+        session.add(Message(conversation_id=conv_id, role="user", content=req.query))
+        session.add(
+            Message(
+                conversation_id=conv_id,
+                role="assistant",
+                content="".join(collected),
+                refs=refs,
+            )
+        )
+        await session.commit()
+
+    return EventSourceResponse(events())

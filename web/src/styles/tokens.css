@@ -1,0 +1,40 @@
+/* 设计令牌：米纸靛蓝主题（IMPLEMENTATION_PLAN.md §9） */
+:root {
+  --color-bg: #FAF7F2;
+  --color-surface: #FFFFFF;
+  --color-border: #E5DFD5;
+  --color-ink: #1F2430;
+  --color-ink-2: #6B7280;
+  --color-ink-3: #9CA3AF;
+
+  --color-accent: #2E4BD8;
+  --color-accent-ink: #FFFFFF;
+  --color-accent-soft: rgba(46, 75, 216, 0.08);
+
+  --color-ok: #0E9F6E;
+  --color-err: #D92D20;
+  --color-warn: #B45309;
+
+  --font-body: 'Source Serif 4', 'Noto Serif SC', Georgia, serif;
+  --font-ui: 'Inter', 'Noto Sans SC', -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+
+  --text-sm: 13px;
+  --text-base: 15px;
+  --text-lg: 18px;
+  --text-title: 22px;
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
+
+  --shadow-card: 0 1px 2px rgba(31, 36, 48, 0.05), 0 4px 16px rgba(31, 36, 48, 0.06);
+}

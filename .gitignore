@@ -1,0 +1,18 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+
+# 环境配置（含密钥，不入库）
+.env
+
+# 前端
+web/node_modules/
+web/dist/
+
+# 数据与日志
+data/
+*.log
+.claude/

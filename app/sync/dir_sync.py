@@ -116,10 +116,16 @@ async def _sync_one_file(
     ext = path.name.rsplit(".", 1)[-1].lower()
     high = importance == "high"
 
-    # 同一路径的文档：hash 相同跳过，不同则覆盖重建
-    doc = await session.scalar(
-        select(Document).where(Document.source_path == full, Document.deleted_at.is_(None))
-    )
+    # 同一路径的文档（含已删除）：活跃文档按 hash 跳过/重建；
+    # 已删除且 hash 未变 → 用户在知识库手动移除的，尊重删除不再回捞；
+    # 已删除但 hash 变了 → 文件内容已更新，当作新内容重新入库
+    docs = (
+        await session.execute(select(Document).where(Document.source_path == full))
+    ).scalars().all()
+    doc = next((d for d in docs if d.deleted_at is None), None)
+    if doc is None and any(d.file_hash == file_hash for d in docs):
+        stats["skipped"] += 1
+        return
     if doc:
         if doc.file_hash == file_hash:
             stats["skipped"] += 1

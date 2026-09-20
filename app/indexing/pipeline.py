@@ -181,7 +181,8 @@ async def _delete_vectors_by_ids(point_ids: list[str]) -> None:
 
 
 async def _delete_document(session: AsyncSession, doc: Document) -> None:
-    """删除：向量 + chunk + 资产文件 + 软删标记。"""
+    """删除：向量 + chunk + 资产文件 + 文档存储副本 + 软删标记。
+    注意：只删系统内部副本（MinIO docs/ 与 assets/），不触碰 source_path 原始文件。"""
     await vector_store.delete_by_document(doc.id)
 
     assets = (await session.execute(select(Asset).where(Asset.document_id == doc.id))).scalars()
@@ -190,6 +191,10 @@ async def _delete_document(session: AsyncSession, doc: Document) -> None:
             storage.remove_object(asset.storage_key)
         except Exception as e:
             log.warning("资产文件删除失败", key=asset.storage_key, err=str(e))
+    try:
+        storage.remove_object(doc.storage_key)
+    except Exception as e:
+        log.warning("文档存储副本删除失败", key=doc.storage_key, err=str(e))
 
     await session.execute(delete(Chunk).where(Chunk.document_id == doc.id))
     await session.execute(delete(Asset).where(Asset.document_id == doc.id))

@@ -262,7 +262,7 @@ export default function DocsPage() {
                     <button
                       className="btn small danger"
                       onClick={async () => {
-                        if (confirm(`删除《${d.filename}》及其全部索引？`)) {
+                        if (confirm(`删除《${d.filename}》及其全部索引？\n（仅删除知识库内容，源文件不受影响）`)) {
                           await api.deleteDocument(d.document_id)
                           refresh()
                         }

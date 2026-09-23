@@ -16,3 +16,4 @@ web/dist/
 data/
 *.log
 .claude/
+.DS_Store

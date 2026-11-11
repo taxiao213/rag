@@ -69,3 +69,9 @@ claude mcp add kb-rag --transport http http://localhost:8000/mcp
 ```bash
 .venv/bin/python -m pytest tests/ -q
 ```
+
+## 交流群
+
+扫码加入微信交流群，交流使用问题与功能建议：
+
+<img src="picture/交流群.png" width="260" alt="微信交流群二维码" />

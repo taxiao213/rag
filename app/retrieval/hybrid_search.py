@@ -60,6 +60,32 @@ async def hybrid_search(
     return [_to_result(ordered[idx][0], ordered[idx][1], score) for idx, score in ranked]
 
 
+async def bm25_search(
+    session: AsyncSession, query: str, *, top_n: int | None = None
+) -> list[dict]:
+    """BM25 单路检索（降级用）：纯本地实现，不依赖任何云端 API，跳过 rerank。
+
+    用 OR 宽松匹配：降级场景下 AND 匹配对长中文查询几乎必然空手而归。
+    """
+    settings = get_settings()
+    top_n = top_n or settings.rerank_top_k
+    hits = await bm25_store.search(session, query, settings.retrieve_bm25_top_k, match_all=False)
+    if not hits:
+        return []
+    ids = [h["chunk_id"] for h in hits]
+    scores = {h["chunk_id"]: h.get("score", 0.0) for h in hits}
+    rows = (
+        await session.execute(
+            select(Chunk, Document)
+            .join(Document, Chunk.document_id == Document.id)
+            .where(Chunk.id.in_(ids), Document.deleted_at.is_(None))
+        )
+    ).all()
+    by_id = {chunk.id: (chunk, doc) for chunk, doc in rows}
+    ordered = [by_id[cid] for cid in ids if cid in by_id][:top_n]
+    return [_to_result(chunk, doc, scores.get(chunk.id, 0.0)) for chunk, doc in ordered]
+
+
 def _to_result(chunk: Chunk, doc: Document, score: float) -> dict:
     return {
         "chunk_id": chunk.id,

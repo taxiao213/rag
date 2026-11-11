@@ -20,14 +20,16 @@ async def embed_texts(texts: list[str], *, concurrency: int = 3) -> list[list[fl
 
     async def embed_batch(idx: int, batch: list[str]) -> tuple[int, list[list[float]]]:
         async with sem:
+            last_err: Exception | None = None
             for attempt in range(3):
                 try:
                     return idx, await client.embed(batch, model)
                 except Exception as e:
+                    last_err = e
                     wait = 2**attempt
                     log.warning("embedding 重试", batch_idx=idx, attempt=attempt, err=str(e))
                     await asyncio.sleep(wait)
-            raise RuntimeError(f"embedding 批次 {idx} 重试 3 次仍失败")
+            raise RuntimeError(f"embedding 批次 {idx} 重试 3 次仍失败") from last_err
 
     batches = [texts[i : i + BATCH_SIZE] for i in range(0, len(texts), BATCH_SIZE)]
     results = await asyncio.gather(*[embed_batch(i, b) for i, b in enumerate(batches)])

@@ -10,12 +10,22 @@ SYSTEM_PROMPT = """你是一个基于企业知识库的问答助手。规则：
 {context}
 """
 
+DIRECT_SYSTEM_PROMPT = """你是企业知识库的问答助手（直答模式：当前知识库检索服务不可用）。规则：
+1. 直接基于你自身的知识回答用户问题，表达简洁、结构化。
+2. 本次回答没有知识库引用，不要输出 [1] 之类的引用编号。
+3. 使用与用户相同的语言回答。
+"""
 
-def build_messages(query: str, context: str, history: list[dict] | None = None) -> list[dict]:
-    """组装消息：系统提示（含知识库上下文）+ 历史对话（最近若干轮）+ 当前问题。"""
-    messages: list[dict] = [
-        {"role": "system", "content": SYSTEM_PROMPT.format(context=context)}
-    ]
+
+def build_messages(
+    query: str, context: str, history: list[dict] | None = None, *, grounded: bool = True
+) -> list[dict]:
+    """组装消息：系统提示（含知识库上下文）+ 历史对话（最近若干轮）+ 当前问题。
+
+    grounded=False 时使用直答模式系统提示（检索降级，无知识库上下文）。
+    """
+    system_content = SYSTEM_PROMPT.format(context=context) if grounded else DIRECT_SYSTEM_PROMPT
+    messages: list[dict] = [{"role": "system", "content": system_content}]
     for msg in history or []:
         messages.append({"role": msg["role"], "content": msg["content"]})
     messages.append({"role": "user", "content": query})

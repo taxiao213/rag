@@ -27,6 +27,7 @@ export default function DocsPage() {
   const [newPath, setNewPath] = useState('')
   const [newImportance, setNewImportance] = useState<'normal' | 'high'>('normal')
   const [scanning, setScanning] = useState(false)
+  const [browsing, setBrowsing] = useState(false)
   const [scanResult, setScanResult] = useState<ScanStats | null>(null)
   const [pathError, setPathError] = useState('')
 
@@ -49,18 +50,35 @@ export default function DocsPage() {
     }
   }
 
-  const addPath = async () => {
-    const p = newPath.trim()
+  const addPathWithValue = async (value: string) => {
+    const p = value.trim()
     if (!p.startsWith('/')) {
       setPathError('请输入绝对路径，如 /data/kb')
-      return
+      return false
     }
     if (paths.some((x) => x.path === p)) {
       setPathError('该路径已存在')
-      return
+      return false
     }
     await persistPaths([...paths, { path: p, importance: newImportance, enabled: true }])
     setNewPath('')
+    return true
+  }
+
+  const addPath = () => addPathWithValue(newPath)
+
+  const browsePath = async () => {
+    setBrowsing(true)
+    setPathError('')
+    try {
+      const r = await api.browsePath()
+      if (r.cancelled || !r.path) return
+      await addPathWithValue(r.path)
+    } catch (e) {
+      setPathError(e instanceof Error ? e.message : '打开系统选择窗口失败')
+    } finally {
+      setBrowsing(false)
+    }
   }
 
   const runScan = async () => {
@@ -159,7 +177,7 @@ export default function DocsPage() {
           <div>
             <div className="sync-title">目录同步</div>
             <div className="sync-sub">
-              监视服务器上的目录：新文件自动入库、修改自动重建、移除自动清理。每 5 分钟定时扫描，也可手动触发。
+              监视服务器上的文件夹或单个文件：新文件自动入库、修改自动重建、移除自动清理。每 5 分钟定时扫描，也可手动触发。
             </div>
           </div>
           <button className="btn small" onClick={runScan} disabled={scanning || paths.length === 0}>
@@ -208,7 +226,7 @@ export default function DocsPage() {
 
         <div className="path-add">
           <input
-            placeholder="输入绝对路径，如 /Users/you/kb 或 /data/docs"
+            placeholder="输入绝对路径，支持文件夹或单个文件，如 /Users/you/kb"
             value={newPath}
             onChange={(e) => setNewPath(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && addPath()}
@@ -227,6 +245,14 @@ export default function DocsPage() {
           </button>
           <button className="btn small" onClick={addPath} disabled={!newPath.trim()}>
             添加路径
+          </button>
+          <button
+            className="btn small"
+            onClick={browsePath}
+            disabled={browsing}
+            title="打开系统选择窗口，选择文件或文件夹后自动添加"
+          >
+            {browsing ? '选择中…' : '浏览…'}
           </button>
         </div>
       </div>

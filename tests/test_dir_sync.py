@@ -1,8 +1,7 @@
 """目录同步扫描的纯函数测试：文件遍历过滤、hash、路径校验。"""
 
-import os
 
-from app.sync.dir_sync import iter_sync_files, sha256_file
+from app.sync.dir_sync import _file_watch_check, iter_sync_files, sha256_file
 
 
 def _touch(path, content: bytes = b"x") -> None:
@@ -47,3 +46,26 @@ def test_sha256_file_stable(tmp_path):
     import hashlib
 
     assert sha256_file(f) == hashlib.sha256(b"world").hexdigest()
+
+
+def test_file_watch_check_accepts_supported_file(tmp_path):
+    f = tmp_path / "note.md"
+    _touch(f, b"# hello")
+    assert _file_watch_check(f) is None
+
+
+def test_file_watch_check_rejects_unsupported_ext(tmp_path):
+    f = tmp_path / "virus.exe"
+    _touch(f)
+    err = _file_watch_check(f)
+    assert err is not None and "不支持的文件类型" in err
+
+
+def test_file_watch_check_rejects_oversized(tmp_path, monkeypatch):
+    from app.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "upload_max_mb", 0)  # 上限 0MB → 必超限
+    f = tmp_path / "big.pdf"
+    _touch(f, b"x" * 1024)
+    err = _file_watch_check(f)
+    assert err is not None and "超过大小上限" in err

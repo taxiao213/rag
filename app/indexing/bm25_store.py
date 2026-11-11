@@ -28,6 +28,16 @@ def to_bigrams(s: str) -> str:
     return " ".join(parts)
 
 
+def build_tsquery(bigrams: str, *, match_all: bool = True) -> str:
+    """bigram 列表 → tsquery 表达式。
+
+    match_all=True 时 AND 连接（精确，主检索路径）；
+    match_all=False 时 OR 连接（宽松，降级检索用，按 ts_rank 排序保证相关性）。
+    """
+    joiner = " & " if match_all else " | "
+    return joiner.join(bigrams.split())
+
+
 async def update_search_vectors(session: AsyncSession, chunk_ids: list[str]) -> None:
     """将指定 chunk 的 content bigram 化写入 search_vector。"""
     for cid in chunk_ids:
@@ -45,8 +55,14 @@ async def delete_by_document(session: AsyncSession, document_id: str) -> None:
     """chunk 级联删除即可，无需额外操作（保留接口与 vector_store 对称）。"""
 
 
-async def search(session: AsyncSession, query: str, top_k: int) -> list[dict]:
-    """BM25 检索：查询 bigram 化后 tsquery & 匹配，ts_rank 排序。"""
+async def search(
+    session: AsyncSession, query: str, top_k: int, *, match_all: bool = True
+) -> list[dict]:
+    """BM25 检索：查询 bigram 化后 tsquery 匹配，ts_rank 排序。
+
+    match_all=True 时所有 bigram 需同时命中（AND，主检索路径）；
+    match_all=False 时任一 bigram 命中即可（OR，降级检索路径）。
+    """
     bigrams = to_bigrams(query)
     if not bigrams:
         return []
@@ -62,7 +78,7 @@ async def search(session: AsyncSession, query: str, top_k: int) -> list[dict]:
             LIMIT :top_k
             """
         ),
-        {"tsq": " & ".join(bigrams.split()), "top_k": top_k},
+        {"tsq": build_tsquery(bigrams, match_all=match_all), "top_k": top_k},
     )
     return [
         {"chunk_id": str(r.chunk_id), "document_id": r.document_id,

@@ -1,6 +1,8 @@
 """目录同步 API：配置多个监视路径、手动触发扫描。"""
 
+import asyncio
 import os
+import sys
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, field_validator
@@ -11,6 +13,56 @@ from app.core.security import require_admin_key, require_query_key
 from app.sync.dir_sync import get_watch_paths, save_watch_paths, scan_watch_paths
 
 router = APIRouter(prefix="/api/paths", tags=["paths"])
+
+# macOS 原生选择窗口（NSOpenPanel，文件/文件夹同框可选），JXA 调用；选中输出 POSIX 路径
+_BROWSE_JXA = """
+ObjC.import("AppKit");
+const panel = $.NSOpenPanel.openPanel;
+panel.canChooseFiles = true;
+panel.canChooseDirectories = true;
+panel.allowsMultipleSelection = false;
+panel.message = "选择要监视的文件或文件夹";
+panel.prompt = "选择";
+if (panel.runModal === $.NSModalResponseOK) {
+  panel.URLs[0].path.js;
+} else {
+  "";
+}
+"""
+
+_BROWSE_TIMEOUT_SECONDS = 180
+
+
+def _parse_browse_output(raw: str) -> str | None:
+    """解析 osascript 输出：返回 POSIX 路径，取消/无选择返回 None。"""
+    return raw.strip() or None
+
+
+async def _run_browse_dialog() -> str:
+    """调起系统选择窗口，返回选中路径；取消抛出 HTTPException(204 语义由调用方处理)。"""
+    if sys.platform != "darwin":
+        raise HTTPException(status_code=400, detail="仅 macOS 支持系统选择窗口，请手动输入路径")
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "osascript", "-l", "JavaScript", "-e", _BROWSE_JXA,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=500, detail=f"无法启动 osascript：{e}") from e
+    try:
+        stdout, stderr = await asyncio.wait_for(
+            proc.communicate(), timeout=_BROWSE_TIMEOUT_SECONDS
+        )
+    except TimeoutError:
+        proc.kill()
+        raise HTTPException(
+            status_code=504, detail="选择窗口超时未响应，请重试或手动输入路径"
+        ) from None
+    if proc.returncode != 0:
+        detail = stderr.decode(errors="replace")[:200] or f"osascript 退出码 {proc.returncode}"
+        raise HTTPException(status_code=500, detail=f"系统选择窗口失败：{detail}")
+    return stdout.decode()
 
 
 class WatchPath(BaseModel):
@@ -46,7 +98,11 @@ async def list_paths(
     paths = await get_watch_paths(session)
     return {
         "paths": [
-            {**p, "exists": os.path.isdir(p.get("path", ""))} for p in paths
+            {
+                **p,
+                "exists": os.path.exists(p.get("path", "")),
+            }
+            for p in paths
         ]
     }
 
@@ -68,6 +124,16 @@ async def save_paths(
     await save_watch_paths(session, unique)
     await session.commit()
     return {"status": "saved", "count": len(unique)}
+
+
+@router.post("/browse")
+async def browse_path(_: str = Depends(require_admin_key)) -> dict:
+    """调起 macOS 原生选择窗口，返回选中的文件或文件夹绝对路径（取消时 path 为 null）。"""
+    raw = await _run_browse_dialog()
+    path = _parse_browse_output(raw)
+    if path is None:
+        return {"path": None, "cancelled": True}
+    return {"path": path, "cancelled": False}
 
 
 @router.post("/scan")

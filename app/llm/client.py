@@ -135,6 +135,8 @@ class LLMClient:
             "max_tokens": kwargs.get("max_tokens") or self.default_max_tokens,
         }
         async with self._client.stream("POST", "/chat/completions", json=payload) as resp:
+            if resp.is_error:
+                await resp.aread()  # 读取错误响应体，便于上层展示具体原因
             resp.raise_for_status()
             async for line in resp.aiter_lines():
                 if not line.startswith("data: ") or line == "data: [DONE]":
@@ -196,6 +198,39 @@ async def reset_clients() -> None:
                     pass
         _chat_client = None
         _index_client = None
+
+
+def describe_llm_error(e: Exception) -> str:
+    """把 LLM/embedding 调用异常转成用户可读文案（沿 __cause__ 追溯被包装的原始错误）。"""
+    try:
+        return _describe_llm_error(e)
+    except Exception:
+        return f"调用失败：{type(e).__name__}"
+
+
+def _describe_llm_error(e: Exception) -> str:
+    err: BaseException = e
+    while getattr(err, "__cause__", None) is not None:
+        err = err.__cause__
+    if isinstance(err, httpx.HTTPStatusError):
+        code = err.response.status_code
+        try:
+            body = (err.response.text or "").strip()[:200]
+        except Exception:
+            body = ""  # 流式响应未读取时 body 不可访问，仅报状态码
+        suffix = f"：{body}" if body else ""
+        if code == 401:
+            return f"模型 API 鉴权失败（401），请到设置页检查对应组的 API Key{suffix}"
+        if code == 404:
+            return f"模型 API 返回 404，请检查设置页的 Base URL 或模型名是否正确{suffix}"
+        if code == 429:
+            return f"模型 API 调用频率超限（429），请稍后重试{suffix}"
+        return f"模型 API 返回 HTTP {code}{suffix}"
+    if isinstance(err, httpx.TimeoutException):
+        return "模型 API 请求超时，请稍后重试或检查网络"
+    if isinstance(err, httpx.HTTPError):
+        return f"无法连接模型服务，请检查网络或代理设置（{type(err).__name__}）"
+    return f"调用失败：{err}"
 
 
 async def test_connection(base_url: str, api_key: str, model: str) -> tuple[bool, str]:

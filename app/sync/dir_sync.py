@@ -4,7 +4,7 @@
   {"paths": [{"path": "/data/kb", "importance": "normal", "enabled": true}]}
 
 扫描规则（与上传共用同一入库管线）：
-- 递归遍历启用路径，按扩展名白名单过滤（同上传）
+- 启用路径可以是目录（递归遍历）或单个文件，按扩展名白名单过滤（同上传）
 - 新文件 → 创建 Document(source_path=绝对路径) + index 任务
 - 同一路径文件内容变化（hash 不同）→ 覆盖对象存储 + reindex 任务（文档级重建）
 - source_path 在某启用路径下但文件已消失 → delete 任务（仅当该路径本身可访问时执行，防误删）
@@ -68,6 +68,20 @@ def iter_sync_files(root: str) -> list[Path]:
                 continue
             results.append(p)
     return sorted(results)
+
+
+def _file_watch_check(p: Path) -> str | None:
+    """单文件监视路径的准入检查（纯函数，便于测试）。返回错误信息，None 表示可入库。"""
+    ext = p.name.rsplit(".", 1)[-1].lower() if "." in p.name else ""
+    if ext not in ALLOWED_EXTENSIONS:
+        return f"不支持的文件类型：{p.name}"
+    max_bytes = get_settings().upload_max_mb * 1024 * 1024
+    try:
+        if p.stat().st_size > max_bytes:
+            return f"文件超过大小上限：{p.name}"
+    except OSError:
+        return f"文件不可访问：{p.name}"
+    return None
 
 
 def sha256_file(path: Path) -> str:
@@ -190,8 +204,22 @@ async def scan_watch_paths(session: AsyncSession) -> dict:
         importance = entry.get("importance", "normal")
         if not root:
             continue
+        if os.path.isfile(root):
+            # 单文件监视：走与目录同一的入库管线；文件消失时与目录同样保守处理（不误删文档）
+            p = Path(root)
+            err = _file_watch_check(p)
+            if err:
+                stats["errors"].append(f"{root}：{err}")
+                log.warning("目录同步：单文件路径不满足入库条件，跳过", path=root, err=err)
+                continue
+            try:
+                await _sync_one_file(session, p, importance, stats)
+            except Exception as e:
+                stats["errors"].append(f"{p.name}: {e}")
+                log.error("目录同步：文件处理失败", path=root, err=str(e))
+            continue
         if not os.path.isdir(root):
-            stats["errors"].append(f"路径不可访问：{root}")
+            stats["errors"].append(f"路径不存在或不可访问：{root}")
             log.warning("目录同步：路径不可访问，跳过", path=root)
             continue
         # 解析符号链接（如 macOS /tmp → /private/tmp），与 source_path 的 resolve 保持一致

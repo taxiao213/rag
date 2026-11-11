@@ -152,6 +152,9 @@ export const api = {
   scanPaths: async (): Promise<ScanStats> =>
     (await request('/api/paths/scan', { method: 'POST' })).json(),
 
+  browsePath: async (): Promise<{ path: string | null; cancelled: boolean }> =>
+    (await request('/api/paths/browse', { method: 'POST' })).json(),
+
   getLLMSettings: async (): Promise<LLMSettings> =>
     (await request('/api/settings/llm')).json(),
 
@@ -198,8 +201,10 @@ export const api = {
           if (parsed.type === 'token') onToken(parsed.content)
           else if (parsed.type === 'refs') onRefs(parsed.refs)
           else if (parsed.type === 'conversation') onConversation?.(parsed.id)
-        } catch {
-          /* 忽略不完整事件 */
+          else if (parsed.type === 'error') throw new Error(parsed.content)
+        } catch (err) {
+          // error 事件直接向上抛，其余忽略不完整事件
+          if (err instanceof Error && err.message) throw err
         }
       }
     }
